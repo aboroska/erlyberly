@@ -48,8 +48,36 @@ size_to_bytes({total_heap_size = K, Size}) -> {K, Size * erlang:system_info(word
 size_to_bytes(KV)                          -> KV.
 
 get_process_state(Pid_string) when is_list(Pid_string) ->
-    State = sys:get_state(list_to_pid(Pid_string)),
-    {ok, State}.
+    Pid = list_to_pid(Pid_string),
+    State = sys:get_state(Pid),
+    {Mod,_,_} = proc_lib:initial_call(Pid),
+    {ok, format_record(State, Mod)}.
+
+format_record(Rec, Mod) ->
+    File = code:which(Mod),
+    {ok,{_Mod,[{abstract_code,{_Version,Forms}},{"CInf",_CB}]}} =
+        beam_lib:chunks(File, [abstract_code,"CInf"]),
+    Recs = [{Tag, record_fields(Fields)}
+            || {attribute,_,record,{Tag,Fields}} <- Forms],
+    PP = io_lib_pretty:print(Rec, record_print_fun(Recs)),
+    lists:flatten(io_lib:format("~s~n", [PP])).
+
+record_fields([{record_field,_,{atom,_,Field}} | Fs]) ->
+    [Field | record_fields(Fs)];
+record_fields([{record_field,_,{atom,_,Field},_} | Fs]) ->
+    [Field | record_fields(Fs)];
+record_fields([]) ->
+    [].
+
+record_print_fun(Recs) ->
+    fun(Tag, NoFields) ->
+            case lists:keyfind(Tag,1,Recs) of
+                {Tag, Fields} when length(Fields) =:= NoFields ->
+                    Fields;
+                false ->
+                    no
+            end
+    end.
 
 %%% ============================================================================
 %%% module function tree
